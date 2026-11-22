@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from petri import Petri, new_session, validate_frame
-from supervisor import candidate, FILES
+from supervisor import candidate, FILES, parse_response, rejection_detail
 
 ROOT = Path(__file__).resolve().parent
 
@@ -81,6 +81,18 @@ class ContainmentTests(unittest.TestCase):
         for draw in ([['open', '/etc/passwd']], [['circle', [0, 0, 0], [1, 1], 99999]]):
             with self.assertRaises(ValueError):
                 validate_frame({'state': {}, 'draw': draw, 'events': []})
+
+    def test_director_response_and_truncation(self):
+        reply = {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"summary":"No change"}'}}]}
+        self.assertEqual(parse_response(json.dumps(reply)), {'summary': 'No change'})
+        reply['choices'][0]['finish_reason'] = 'length'
+        with self.assertRaisesRegex(ValueError, 'truncated'):
+            parse_response(json.dumps(reply))
+
+    def test_diagnostic_redacts_api_key(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {'LIVING_GAME_API_KEY': 'secret-marker'}):
+            self.assertNotIn('secret-marker', rejection_detail(ValueError('secret-marker')))
 
 
 if __name__ == '__main__':
