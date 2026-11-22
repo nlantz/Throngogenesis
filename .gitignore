@@ -1,4 +1,5 @@
 world/
+world-contained/
 .stop-game
 __pycache__/
 *.pyc

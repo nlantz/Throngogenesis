@@ -1,3 +1,3 @@
 # Creative journal
 
-The world begins with a tiny creature and a field. No creative decisions yet.
+A small creature in a field. Nothing else is predetermined.
