@@ -82,6 +82,22 @@ class ContainmentTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_frame({'state': {}, 'draw': draw, 'events': []})
 
+    def test_empty_and_fractional_geometry(self):
+        draw = [['rect', [0, 0, 0], [1, 2], [0, 10]],
+                ['rect', [0, 0, 0], [1, 2], [-1, 10]],
+                ['rect', [0, 0, 0], [1.7, 2.2], [5.8, 10.0]],
+                ['circle', [0, 0, 0], [4.1, 5.9], 3.7]]
+        result = validate_frame({'state': {}, 'draw': draw, 'events': []})
+        self.assertEqual(result['draw'], [
+            ['rect', [0, 0, 0], [2, 2], [6, 10]],
+            ['circle', [0, 0, 0], [4, 6], 4]])
+
+    def test_bad_geometry_still_rejected(self):
+        for width in (float('nan'), float('inf'), 2049, -2049, True, '5'):
+            with self.assertRaises(ValueError):
+                validate_frame({'state': {}, 'draw': [
+                    ['rect', [0, 0, 0], [1, 2], [width, 10]]], 'events': []})
+
     def test_director_response_and_truncation(self):
         reply = {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"summary":"No change"}'}}]}
         self.assertEqual(parse_response(json.dumps(reply)), {'summary': 'No change'})

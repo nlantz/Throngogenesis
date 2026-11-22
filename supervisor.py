@@ -16,6 +16,7 @@ from petri import Petri, W, H, bounded, encode, render, MAX_SOURCE, MAX_STATE, M
 ROOT = Path(__file__).resolve().parent
 WORLD = ROOT / 'world-contained'
 BRANCH = 'evolution'
+ROLLBACK_REF = 'refs/petri/rollback'
 FILES = {'main.py': MAX_SOURCE, 'world.json': MAX_STATE,
          'assets.json': MAX_ASSETS, 'journal.md': 32768}
 DIRECTOR = """You are the art director of a living, evolving digital experience.
@@ -38,8 +39,9 @@ Canvas is 800x520. draw is a list of arrays:
 ['fill', RGB], ['circle', RGB, [x,y], radius],
 ['rect', RGB, [x,y], [width,height]], ['line', RGB, [x,y], [x,y], width],
 ['polygon', RGB, [[x,y],...]], ['text', RGB, [x,y], string].
-Use integer coordinates within -4096..4096 and integer 0..255 RGB channels.
-Radius 1..1024, rectangle width/height 1..2048, line width 1..32.
+Use finite coordinates within -4096..4096 and integer 0..255 RGB channels.
+Geometry is rounded to integers. Radius 0..1024, rectangle width/height
+-2048..2048 (nonpositive dimensions draw nothing), line width 1..32.
 Max 1024 commands, 160 chars per text, 3..128 vertices per polygon. Create procedural sprites or store reusable pixel/
 vector designs in assets.json and turn them into draw commands yourself.
 Do not print anything. The supervisor captures player input independently;
@@ -184,6 +186,45 @@ def candidate(files, change):
     return result
 
 
+def smoke_test(files):
+    game, state = game_from(files)
+    for i in range(120):
+        inputs = []
+        if i in (1, 30, 60):
+            inputs = [{'type': 'click', 'button': 1, 'pos': [400, 260]}]
+        elif i == 90:
+            inputs = [{'type': 'motion', 'pos': [10, 10]}]
+        elif i == 100:
+            inputs = [{'type': 'key', 'key': 'space'}]
+        elif i == 101:
+            inputs = [{'type': 'key_up', 'key': 'space'}]
+        state = game.step(state, inputs, (0.016, 0.05, 0.1)[i % 3])['state']
+
+
+def recover_runtime(state):
+    # Trusted ref persists across restarts; never execute native guest code.
+    try:
+        checkpoint = git('rev-parse', '--verify', ROLLBACK_REF)
+    except subprocess.CalledProcessError:
+        print('No automatic rollback checkpoint; inspect local Git history.', flush=True)
+        return None
+    try:
+        files = {name: git('show', checkpoint + ':' + name) for name in FILES}
+        smoke_test(files)
+        fresh, restored_state = game_from(files)
+    except Exception as exc:
+        print('Previous generation could not be restored:', rejection_detail(exc), flush=True)
+        return None
+    save_state(state)
+    commit('Runtime failure checkpoint')
+    broken = git('rev-parse', 'HEAD')
+    git('update-ref', 'refs/petri/rejected/' + broken, broken)
+    git('reset', '--hard', checkpoint)
+    git('update-ref', '-d', ROLLBACK_REF)
+    print(f'Restored {checkpoint[:8]}; rejected generation retained as {broken[:8]}', flush=True)
+    return fresh, restored_state
+
+
 def evolve(game, state, events, max_tokens):
     save_state(state)
     commit('Gameplay checkpoint')
@@ -200,12 +241,8 @@ def evolve(game, state, events, max_tokens):
             print('Director: no change', flush=True)
             return game, state
         # Run smoke test ONLY in a disposable Eryx instance, never native Python.
-        stage = 'sandbox initialization'
-        test, test_state = game_from(new)
-        for i, inputs in enumerate(([], [{'type': 'click', 'button': 1, 'pos': [400, 260]}], []), 1):
-            stage = f'sandbox smoke test frame {i}'
-            test_state = test.step(test_state, inputs, 0.05)['state']
-        del test
+        stage = 'sandbox smoke test (120 frames)'
+        smoke_test(new)
         stage = 'fresh sandbox initialization'
         fresh, fresh_state = game_from(new)
         stage = 'Git checkpoint / file write'
@@ -213,6 +250,7 @@ def evolve(game, state, events, max_tokens):
             if content != files[name]:
                 (WORLD / name).write_text(content, encoding='utf-8')
         commit(change['summary'].replace('\n', ' '))
+        git('update-ref', ROLLBACK_REF, checkpoint)
         events.clear()
         print('Director:', repr(change['summary'][:180]), flush=True)
         return fresh, fresh_state
@@ -266,11 +304,21 @@ def main():
             inputs = inputs[-64:]
             events.extend(e for e in inputs if e['type'] != 'motion')
             # Runtime errors fail closed; never fall back to native execution.
-            frame = game.step(state, inputs, dt)
+            try:
+                frame = game.step(state, inputs, dt)
+                render(pygame, screen, font, frame['draw'])
+                pygame.display.flip()
+            except Exception as exc:
+                print('Runtime failure:', rejection_detail(exc), flush=True)
+                restored = recover_runtime(state)
+                if restored is None:
+                    raise
+                game, state = restored
+                events.clear()
+                deadline = time.monotonic() + args.interval
+                continue
             state = frame['state']
             events.extend(frame['events'])
-            render(pygame, screen, font, frame['draw'])
-            pygame.display.flip()
             if time.monotonic() - last_save >= 5:
                 save_state(state)
                 last_save = time.monotonic()

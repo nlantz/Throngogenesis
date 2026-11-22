@@ -34,15 +34,23 @@ def color(v):
     return [integer(c, 0, 255) for c in v]
 
 
+def geometry(v, lo, hi):
+    # Quantize only finite, bounded numbers; bool is not a coordinate.
+    if type(v) not in (int, float) or not lo <= v <= hi:
+        raise ValueError('Drawing geometry outside permitted bounds')
+    return round(v)
+
+
 def point(v):
     if not isinstance(v, list) or len(v) != 2:
         raise ValueError('Expected point')
-    return [integer(c, -4096, 4096) for c in v]
+    return [geometry(c, -4096, 4096) for c in v]
 
 
 def validate_commands(commands):
     if not isinstance(commands, list) or len(commands) > 1024:
         raise ValueError('Too many drawing commands')
+    normalized = []
     for command in commands:
         if not isinstance(command, list) or not command:
             raise ValueError('Malformed drawing command')
@@ -50,35 +58,41 @@ def validate_commands(commands):
         if op == 'fill' and len(a) == 1:
             color(a[0])
         elif op == 'circle' and len(a) == 3:
-            color(a[0]); point(a[1]); integer(a[2], 1, 1024)
+            a = [color(a[0]), point(a[1]), geometry(a[2], 0, 1024)]
+            if a[2] == 0:
+                continue
         elif op == 'rect' and len(a) == 3:
-            color(a[0]); point(a[1])
+            rgb, pos = color(a[0]), point(a[1])
             if not isinstance(a[2], list) or len(a[2]) != 2:
                 raise ValueError('Expected rectangle size')
-            for n in a[2]:
-                integer(n, 1, 2048)
+            size = [geometry(n, -2048, 2048) for n in a[2]]
+            if min(size) <= 0:
+                continue
+            a = [rgb, pos, size]
         elif op == 'line' and len(a) == 4:
-            color(a[0]); point(a[1]); point(a[2]); integer(a[3], 1, 32)
+            a = [color(a[0]), point(a[1]), point(a[2]), geometry(a[3], 1, 32)]
         elif op == 'polygon' and len(a) == 2:
             color(a[0])
             if not isinstance(a[1], list) or not 3 <= len(a[1]) <= 128:
                 raise ValueError('Invalid polygon')
-            for p in a[1]:
-                point(p)
+            a = [color(a[0]), [point(p) for p in a[1]]]
         elif op == 'text' and len(a) == 3:
             color(a[0]); point(a[1])
             if not isinstance(a[2], str) or len(a[2]) > 160 or '\x00' in a[2]:
                 raise ValueError('Invalid text')
             a[2].encode('utf-8')
+            a = [color(a[0]), point(a[1]), a[2]]
         else:
             raise ValueError('Unknown drawing command')
+        normalized.append([op, *a])
+    return normalized
 
 
 def validate_frame(frame):
     if not isinstance(frame, dict) or set(frame) != {'state', 'draw', 'events'}:
         raise ValueError('Expected state, draw and events')
     bounded(frame['state'], MAX_STATE)
-    validate_commands(frame['draw'])
+    frame['draw'] = validate_commands(frame['draw'])
     events = frame['events']
     if not isinstance(events, list) or len(events) > MAX_EVENTS:
         raise ValueError('Too many guest events')

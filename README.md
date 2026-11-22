@@ -31,7 +31,11 @@ $env:LIVING_GAME_API_KEY = 'YOUR_API_KEY'
 The supervisor sends the current game, assets, state, journal and recent gameplay
 events to the configured API. The model can change any of these or do nothing.
 Default: every five minutes of play, maximum 12 API calls per session.
-A short smoke test is run in a fresh sandbox before committing changes.
+A 120-frame smoke test with varied time steps and input is run in a fresh
+sandbox before committing changes. Geometry is bounded and rounded; empty
+rectangles are skipped. A runtime failure attempts to restore the previous
+checkpoint, preserving the rejected generation in a local refs/petri/rejected/
+ref. Saves created before this change may not yet have a rollback ref.
 For a quick trial add --interval 30 --max-calls 2.
 The API output cap is --max-tokens (default 8192, sent as max_completion_tokens;
 the provider must support that parameter). A call/token cap is NOT a hard dollar
@@ -59,7 +63,8 @@ to independent OS quotas. Git history grows over time. This is an experimental
 containment layer, not security-certified software. For adversarial testing or
 sensitive hosts use additional OS/VM isolation. No API or Windows runtime test
 has been performed by the author of this branch; run the included tests locally.
-An accepted game may still fail later; stop and use git history to recover.
+An accepted game may still fail later. Automatic rollback is best effort;
+if it cannot restore the previous checkpoint, stop and use Git history.
 
 ```powershell
 git -C world-contained log --oneline
