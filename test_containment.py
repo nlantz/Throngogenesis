@@ -36,7 +36,7 @@ class ContainmentTests(unittest.TestCase):
                     'try:\n    open(' + repr(str(marker)) + ', "w").write("altered")\n'
                     'except OSError:\n    pass\n'
                     'print("ok")')
-                self.assertEqual(result.stdout.strip(), 'ok')
+                self.assertEqual(result.stdout.strip(), b'ok')
                 self.assertEqual(marker.read_text(), 'HOST_ONLY_9283')
             finally:
                 os.environ.pop('PETRI_TEST_SECRET', None)
@@ -54,7 +54,7 @@ class ContainmentTests(unittest.TestCase):
                 '    s = socket.create_connection(("127.0.0.1", ' + str(port) + '), timeout=0.1)\n'
                 'except (OSError, ImportError, NotImplementedError):\n    print("denied")\n'
                 'else:\n    s.close()\n    print("connected")')
-            self.assertEqual(result.stdout.strip(), 'denied')
+            self.assertEqual(result.stdout.strip(), b'denied')
             with self.assertRaises(TimeoutError):
                 listener.accept()
 
@@ -69,7 +69,7 @@ class ContainmentTests(unittest.TestCase):
             '    subprocess.run(["python", "-c", "print(123)"])\n'
             'except (OSError, ImportError, NotImplementedError):\n    print("denied")\n'
             'else:\n    print("launched")')
-        self.assertEqual(result.stdout.strip(), 'denied')
+        self.assertEqual(result.stdout.strip(), b'denied')
 
     def test_director_cannot_write_outside_allowlist(self):
         files = dict.fromkeys(FILES, '')
