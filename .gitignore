@@ -1,0 +1,6 @@
+world/
+.stop-game
+__pycache__/
+*.pyc
+.venv/
+.env
